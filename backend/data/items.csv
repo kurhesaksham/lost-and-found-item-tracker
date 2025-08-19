@@ -1,0 +1,5 @@
+id,title,description,category,location,status,type,lost_date,found_date,image_url,contact_name,contact_email,contact_phone
+1,book,the power of your subconcious mind	,books,library,matched,lost,2025-08-08,,https://placehold.co/150x100?text=No+Image,Aditya Patel,adityapatel8698@gmail.com,9307651294
+2,book,the power of your subconcious mind,books,classroom-404,matched,found,,2025-08-18,https://placehold.co/150x100?text=No+Image,Parth kenjale,parth123@gmail.com,6578394634
+3,bag,black color sky bag,other,library,matched,lost,2025-08-11,,https://placehold.co/150x100?text=No+Image,Aditya Patel,adityapatel8698@gmail.com,9307651294
+4,bag,black color sky bag	,other,basketball ground,matched,found,,2025-08-19,https://placehold.co/150x100?text=No+Image,piyush kolhe,piyush3467@gmail.com,6578092345
