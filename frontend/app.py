@@ -52,6 +52,15 @@ def submit_report(data):
         st.error(f"Error submitting: {e}")
         return False
 
+# ===== New API Utility for delete =====
+def delete_item(item_id):
+    try:
+        r = requests.delete(f"{API_BASE}/api/items/{item_id}")
+        return r.status_code == 200
+    except Exception as e:
+        st.error(f"Error deleting item: {e}")
+        return False
+
 # ===== SESSION STATE =====
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
@@ -59,22 +68,65 @@ if "logged_in" not in st.session_state:
     st.session_state.show_report_form = False
 
 # ===== LOGIN =====
+# ===== LOGIN / REGISTER =====
 if not st.session_state.logged_in:
-    st.title("🔐 Student Login")
-    email = st.text_input("Student Email", key="student_email")
-    password = st.text_input("Password", type="password", key="student_password")
-    if st.button("Login"):
-        if email and password:
-            st.session_state.logged_in = True
-            st.session_state.email = email
-            save_user_login("student", email)
-            st.rerun()
-        else:
-            st.warning("Enter both email and password")
+    st.title("🔐 Student Login / Register")
+
+    # Toggle between Login and Register
+    mode = st.radio("Choose Action", ["Login", "Register"], horizontal=True)
+
+    if mode == "Login":
+        email = st.text_input("Student Email", key="student_email")
+        password = st.text_input("Password", type="password", key="student_password")
+        if st.button("Login"):
+            if email and password:
+                # Call backend login API
+                try:
+                    r = requests.post(f"{API_BASE}/api/login", json={"email": email, "password": password})
+                    if r.status_code == 200:
+                        data = r.json()
+                        st.session_state.logged_in = True
+                        st.session_state.email = email
+                        save_user_login("student", email)
+                        st.success("✅ Login successful!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Invalid credentials")
+                except Exception as e:
+                    st.error(f"Error connecting to backend: {e}")
+            else:
+                st.warning("Enter both email and password")
+
+    elif mode == "Register":
+        name = st.text_input("Full Name", key="reg_name")
+        email = st.text_input("Email", key="reg_email")
+        password = st.text_input("Password", type="password", key="reg_password")
+        confirm = st.text_input("Confirm Password", type="password", key="reg_confirm")
+
+        if st.button("Register"):
+            if not name or not email or not password:
+                st.warning("⚠ Please fill all fields")
+            elif password != confirm:
+                st.error("❌ Passwords do not match")
+            else:
+                try:
+                    r = requests.post(f"{API_BASE}/api/register", json={
+                        "name": name,
+                        "email": email,
+                        "password": password,
+                        "role": "student"
+                    })
+                    if r.status_code == 201:
+                        st.success("🎉 Registration successful! Please login now.")
+                    else:
+                        st.error(f"❌ Registration failed: {r.text}")
+                except Exception as e:
+                    st.error(f"Error connecting to backend: {e}")
+
 
 # ===== MAIN APP =====
 else:
-    st.sidebar.write(f"Logged in as: **{st.session_state.email}** (Student)")
+    st.sidebar.write(f"Logged in as: *{st.session_state.email}* (Student)")
     if st.sidebar.button("Logout"):
         st.session_state.logged_in = False
         st.session_state.show_report_form = False
@@ -91,10 +143,11 @@ else:
     col4.metric("Matches", stats.get("matched_items", 0))
 
         # Show items list in a standard table with images + description
+        # Show items list in a standard table with images + description
     st.subheader("📋 All Reported Items")
     items = fetch_items()
+
     if items:
-        # Convert items into DataFrame
         df = pd.DataFrame(items)
 
         # Ensure all expected columns exist
@@ -106,24 +159,46 @@ else:
         for col in expected_cols:
             if col not in df.columns:
                 df[col] = ""
-
-        # Reorder columns explicitly
         df = df[expected_cols]
+
+        # 🔍 --- Search & Filter ---
+                # 🔍 --- Search & Filter ---
+        with st.expander("🔎 Search & Filter"):
+            search_text = st.text_input("Search by Title / Description / Location")
+            filter_type = st.selectbox("Filter by Type", ["All", "lost", "found", "matched"])
+            filter_category = st.selectbox(
+                "Filter by Category",
+                ["All", "books", "electronics", "id_cards", "clothing", "accessories", "other"]
+            )
+
+        # Apply search filter
+        if search_text:
+            df = df[df.apply(lambda row: search_text.lower() in str(row.values).lower(), axis=1)]
+
+        # Apply type filter
+        if filter_type != "All":
+            df = df[df["type"].str.lower() == filter_type.lower()]
+
+
+        # Apply category filter
+        if filter_category != "All":
+            df = df[df["category"].str.lower() == filter_category.lower()]
+
 
         # Show images as thumbnails
         def image_formatter(url):
             if url:
-                return f'<img src="{url}" width="80">'
+                return f'<a href="{url}" target="_blank"><img src="{url}" width="80"></a>'
             return "❌"
 
-        # Row highlighting (green for matched)
+        # Row highlighting (matched/lost/found)
         def highlight_row(row):
             if row["status"] == "matched":
                 return ['background-color: lightgreen'] * len(row)
             elif row["status"] == "lost":
-                return ['background-color: #ffcccc'] * len(row)  # light red
+                return ['background-color: #ffcccc'] * len(row)
             elif row["status"] == "found":
-                return ['background-color: #cce5ff'] * len(row)  # light blue
+                return ['background-color: #cce5ff'] * len(row)
             return [''] * len(row)
 
         st.write(
@@ -143,45 +218,72 @@ else:
         st.session_state.show_report_form = not st.session_state.show_report_form
 
     # Report form (shows only if toggled)
-    if st.session_state.show_report_form:
-        st.subheader("📝 Report Lost or Found Item")
-        with st.form("report_form"):
-            title = st.text_input("Item Title")
-            description = st.text_area("Description")
-            item_type = st.selectbox("Type", ["lost", "found","matched"])
-            category = st.selectbox("Category", ["books", "electronics", "id_cards", "clothing", "accessories", "other"])
-            location = st.text_input("Location")
-            image_url = st.text_input("Image URL (optional)", value="https://placehold.co/150x100?text=No+Image")
+    # Report form (shows only if toggled)
+if st.session_state.show_report_form:
+    st.subheader("📝 Report Lost or Found Item")
+    with st.form("report_form"):
+        title = st.text_input("Item Title")
+        description = st.text_area("Description")
+        item_type = st.selectbox("Type", ["lost", "found","matched"])
+        category = st.selectbox("Category", ["books", "electronics", "id_cards", "clothing", "accessories", "other"])
+        location = st.text_input("Location")
 
-            # Contact info fields
-            contact_name = st.text_input("Your Name")
-            contact_email = st.text_input("Your Email")
-            contact_phone = st.text_input("Your Phone")
+        # 📸 Image upload (inside form)
+        uploaded_file = st.file_uploader("Upload Item Image", type=["png", "jpg", "jpeg"])
+        image_url = ""
 
-            # Conditional date pickers
-            lost_date, found_date = "", ""
-            if item_type == "lost":
-                lost_date = st.date_input("Lost Date", datetime.date.today())
-            elif item_type == "found":
-                found_date = st.date_input("Found Date", datetime.date.today())
+        if uploaded_file is not None:
+            try:
+                r = requests.post(
+                    f"{API_BASE}/api/upload",
+                    files={"file": uploaded_file}
+                )
+                if r.status_code == 200:
+                    image_url = r.json().get("url", "")
+                    st.success("✅ Image uploaded successfully!")
+                else:
+                    st.error(f"Upload failed: {r.text}")
+            except Exception as e:
+                st.error(f"Image upload failed: {e}")
 
-            submitted = st.form_submit_button("Submit Report", type="primary")
-            if submitted:
-                data = {
-                    "title": title,
-                    "description": description,
-                    "type": item_type,
-                    "category": category,
-                    "location": location,
-                    "image_url": image_url,
-                    "contact_name": contact_name,
-                    "contact_email": contact_email,
-                    "contact_phone": contact_phone,
-                    "status": item_type,  # save as lost/found
-                    "lost_date": str(lost_date) if lost_date else "",
-                    "found_date": str(found_date) if found_date else ""
-                }
-                if submit_report(data):
-                    st.success("Report submitted successfully!")
-                    st.session_state.show_report_form = False
-                    st.rerun()
+        # fallback if nothing uploaded or failed
+        if not image_url:
+            image_url = "https://placehold.co/150x100?text=No+Image"
+
+        # Contact info fields
+        contact_name = st.text_input("Your Name")
+        contact_email = st.text_input("Your Email")
+        contact_phone = st.text_input("Your Phone")
+
+        # Conditional date picker with dynamic label
+        date_label = "📅 Lost Date" if item_type == "lost" else "📅 Found Date"
+        date_value = st.date_input(date_label, datetime.date.today())
+
+        lost_date, found_date = "", ""
+        if item_type == "lost":
+            lost_date = date_value
+        else:
+            found_date = date_value
+
+        # ✅ Proper submit button inside the form
+        submitted = st.form_submit_button("Submit Report", type="primary")
+
+        if submitted:
+            data = {
+                "title": title,
+                "description": description,
+                "type": item_type,
+                "category": category,
+                "location": location,
+                "image_url": image_url,
+                "contact_name": contact_name,
+                "contact_email": contact_email,
+                "contact_phone": contact_phone,
+                "status": item_type,  # save as lost/found
+                "lost_date": str(lost_date) if lost_date else "",
+                "found_date": str(found_date) if found_date else ""
+            }
+            if submit_report(data):
+                st.success("Report submitted successfully!")
+                st.session_state.show_report_form = False
+                st.rerun()
